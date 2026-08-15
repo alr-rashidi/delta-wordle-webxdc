@@ -49,6 +49,6 @@ Copy an existing locale folder under `localization/` (e.g. `localization/en/`) t
 - optionally provide a smaller curated list of common words in `answers.js` (assigned to `window.ANSWERS_RAW`) — the daily word is picked from it; when absent, the daily word falls back to `words.js`,
 - adapt the on-screen keyboard layout in `keyboard.js` to the language's alphabet,
 - update `name` in `manifest.toml`, and drop in an `icon.png` for that locale,
-- optionally add a `font.js` with a custom font for the language (see [Custom fonts per language](#custom-fonts-per-language)).
+- optionally add a `font.js` with a custom font for the language (see [Custom fonts per language](#custom-font-per-language)).
 
 The shared `scripts/normalize.js` handles letter normalization (e.g. Persian/Arabic variants) and counting display characters instead of bytes, so words are compared consistently regardless of input method.
