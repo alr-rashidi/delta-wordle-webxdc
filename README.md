@@ -10,7 +10,7 @@
 - 👥 **Shared leaderboard** — Finished players' results sync through the chat in real time; tap a player to see their guesses
 - 🏳️ **Surrender** — Give up anytime to reveal today's word (a surrender is recorded for you)
 - 📋 **Copy result** — Share your grid of emoji tiles with friends
-- 🌐 **Multi-language support** — English and Persian (فارسی) locales with full RTL support; all UI text is managed through i18n files
+- 🌐 **Multi-language support** — All UI texts are managed through i18n files
 
 ## Screenshot
 
@@ -20,17 +20,9 @@
 
 The app is plain HTML/CSS/JS with no build step. Each locale lives in its own folder under `localization/` (e.g. `localization/en/`) and is self-contained except for the shared `scripts/` and `style.css` at the project root.
 
-To develop, open a locale's `index.html` directly in a browser, e.g. `localization/en/index.html` — `webxdc.js` is stubbed inside `scripts/script.js` so the app works outside Delta Chat. Open the same page in two browser tabs to simulate two players chatting with each other.
+To test real chat integration, package each locale as a `.xdc` file and share it in a Delta Chat chat.
 
-To test real chat integration, package each locale as a `.xdc` file and share it in a Delta Chat chat:
-
-```
-./temp/make-xdc.sh
-```
-
-This writes one `delta-wordle-<locale>-<version>.xdc` per locale into `temp/` (pass a version as the first argument, e.g. `./temp/make-xdc.sh 1.0.0`; it defaults to `dev`).
-
-### Custom fonts per language
+### Custom font per language
 
 Each locale can ship its own font via an optional `font.js` in the locale folder. Set `window.LOCALE_FONT` to one of:
 
@@ -40,7 +32,6 @@ Each locale can ship its own font via an optional `font.js` in the locale folder
   window.LOCALE_FONT = { file: "font.woff2", family: "Arad" };
   ```
 
-  The file is registered as an `@font-face` (the format is inferred from the extension) and applied to the whole UI. If you omit `family`, the font is registered under an internal name.
 - **A system font family name** without a file:
 
   ```js
