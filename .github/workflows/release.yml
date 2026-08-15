@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev"
+          fi
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Using version: ${VERSION}"
+
+      - name: Build one .xdc per locale
+        run: |
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          mkdir -p dist
+
+          APP_FILES=(index.html style.css scripts)
+          # The locale's index.html is a dev preview (relative paths back to the
+          # project root), so the root index.html is used inside the package.
+          LOCALE_FILES=(manifest.toml strings.js words.js keyboard.js icon.png)
+
+          for locale_dir in localization/*/; do
+            [ -d "$locale_dir" ] || continue
+            locale="$(basename "$locale_dir")"
+
+            # Skip locales that are missing any of the required files.
+            missing=0
+            for f in "${LOCALE_FILES[@]}"; do
+              if [ ! -f "$locale_dir/$f" ]; then
+                echo "Skipping '$locale': missing $locale_dir/$f"
+                missing=1
+                break
+              fi
+            done
+            [ "$missing" -eq 0 ] || continue
+
+            XDC_NAME="delta-wordle-${locale}-${VERSION}.xdc"
+            STAGE=".stage-$locale"
+            rm -rf "$STAGE"
+            mkdir -p "$STAGE"
+
+            for f in "${APP_FILES[@]}"; do
+              cp -r "$f" "$STAGE/"
+            done
+            for f in "${LOCALE_FILES[@]}"; do
+              cp "$locale_dir/$f" "$STAGE/"
+            done
+
+            # Optional per-locale files: the answers list (answers.js) and
+            # the custom font (font.js plus any font file it references).
+            for f in font.js answers.js; do
+              if [ -f "$locale_dir/$f" ]; then
+                cp "$locale_dir/$f" "$STAGE/"
+              fi
+            done
+            if [ -f "$locale_dir/font.js" ]; then
+              FONT_FILE="$(sed -nE '/^[[:space:]]*window\.LOCALE_FONT/ s/.*"([^"]*\.(woff2?|ttf|otf))".*/\1/p' "$locale_dir/font.js" | head -n1)"
+              if [ -n "$FONT_FILE" ] && [ -f "$locale_dir/$FONT_FILE" ]; then
+                cp "$locale_dir/$FONT_FILE" "$STAGE/"
+              fi
+            fi
+
+            # Pin the version in the staged manifest (leave the source untouched)
+            if grep -q '^version[[:space:]]*=' "$STAGE/manifest.toml"; then
+              sed -i "s/^version[[:space:]]*=.*/version = \"${VERSION}\"/" "$STAGE/manifest.toml"
+            else
+              echo "version = \"${VERSION}\"" >> "$STAGE/manifest.toml"
+            fi
+
+            (cd "$STAGE" && zip -qr "../dist/${XDC_NAME}" .)
+            rm -rf "$STAGE"
+
+            echo "=== Contents of ${XDC_NAME} ==="
+            unzip -l "dist/${XDC_NAME}"
+            test -s "dist/${XDC_NAME}"
+          done
+
+          echo "=== Built .xdc files ==="
+          ls -la dist/
+
+      - name: Upload .xdc files as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xdc-files
+          path: dist/*.xdc
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.xdc
+          generate_release_notes: true
