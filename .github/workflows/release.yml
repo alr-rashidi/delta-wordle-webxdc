@@ -1,26 +1,21 @@
 name: Release
-
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - name: Set version
         id: version
         run: |
@@ -31,101 +26,81 @@ jobs:
           fi
           echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Using version: ${VERSION}"
-
       - name: Build one minified .xdc per locale
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
           MAKE_XDC_PATH="$(pwd)/git-assets/make-xdc.sh"
           chmod +x "$MAKE_XDC_PATH"
-
           mkdir -p dist
 
-          LOCALE_DIR_PARENT="locales"
-
-          if [ -z "$LOCALE_DIR_PARENT" ]; then
-            echo "Error: No 'locales' directory was found!" >&2
+          LOCALES_DIR=""
+          for candidate in locales locals localization; do
+            if [ -d "$candidate" ]; then
+              LOCALES_DIR="$candidate"
+              break
+            fi
+          done
+          if [ -z "$LOCALES_DIR" ]; then
+            echo "Error: No locales/locals/localization directory found!" >&2
             exit 1
           fi
+          echo "Using locales directory: $LOCALES_DIR"
 
-          APP_FILES=(index.html style.css scripts assets webxdc.js unixel.woff2 icon.png)
-          LOCALE_FILES=(manifest.toml strings.js words.js keyboard.js icon.png)
-
-          BUILT_COUNT=0
-
-          for locale_dir in "$LOCALE_DIR_PARENT"/*/; do
+          LOCALE_FOUND=false
+          for locale_dir in "$LOCALES_DIR"/*/; do
             [ -d "$locale_dir" ] || continue
             locale="$(basename "$locale_dir")"
+            echo "=== Building minified package for locale: ${locale} ==="
+            LOCALE_FOUND=true
 
-            # Skip locales that are missing any of the required files.
-            missing=0
-            for f in "${LOCALE_FILES[@]}"; do
-              if [ ! -f "$locale_dir/$f" ]; then
-                echo "Skipping '$locale': missing $locale_dir/$f"
-                missing=1
-                break
-              fi
-            done
-            [ "$missing" -eq 0 ] || continue
-
-            XDC_NAME="delta-wordle-${locale}-${VERSION}.xdc"
             STAGE=".stage-$locale"
             rm -rf "$STAGE"
             mkdir -p "$STAGE"
 
-            # Copy base application files into staging
-            for f in "${APP_FILES[@]}"; do
-              if [ -e "$f" ]; then
-                cp -r "$f" "$STAGE/"
-              fi
-            done
+            find . -mindepth 1 -maxdepth 1 \
+              ! -name ".git" \
+              ! -name ".github" \
+              ! -name "dist" \
+              ! -name "temp" \
+              ! -name "locales" \
+              ! -name ".stage-*" \
+              ! -name "node_modules" \
+              ! -name "puzzles_compressor" \
+              ! -name "git-assets" \
+              -exec cp -a {} "$STAGE/" \;
 
-            # Copy locale-specific required files
-            for f in "${LOCALE_FILES[@]}"; do
-              if [ -e "$locale_dir/$f" ]; then
-                cp -r "$locale_dir/$f" "$STAGE/"
-              fi
-            done
+            cp -a "$locale_dir"/. "$STAGE/"
 
-            # Optional per-locale files: answers list (answers.js) and custom fonts
-            for f in font.js answers.js; do
-              if [ -f "$locale_dir/$f" ]; then
-                cp "$locale_dir/$f" "$STAGE/"
-              fi
-            done
-            if [ -f "$locale_dir/font.js" ]; then
-              FONT_FILE="$(sed -nE '/^[[:space:]]*window\.LOCALE_FONT/ s/.*"([^"]*\.(woff2?|ttf|otf))".*/\1/p' "$locale_dir/font.js" | head -n1)"
-              if [ -n "$FONT_FILE" ] && [ -f "$locale_dir/$FONT_FILE" ]; then
-                cp "$locale_dir/$FONT_FILE" "$STAGE/"
+            if [ -f "$STAGE/manifest.toml" ]; then
+              if grep -q '^version[[:space:]]*=' "$STAGE/manifest.toml"; then
+                sed -i "s/^version[[:space:]]*=.*/version = \"${VERSION}\"/" "$STAGE/manifest.toml"
+              else
+                echo "version = \"${VERSION}\"" >> "$STAGE/manifest.toml"
               fi
             fi
 
-            # Pin the version in the staged manifest
-            if grep -q '^version[[:space:]]*=' "$STAGE/manifest.toml"; then
-              sed -i "s/^version[[:space:]]*=.*/version = \"${VERSION}\"/" "$STAGE/manifest.toml"
-            else
-              echo "version = \"${VERSION}\"" >> "$STAGE/manifest.toml"
-            fi
-
-            # Build minified .xdc package
+            XDC_NAME="wordle-${locale}-${VERSION}.xdc"
             DEST_XDC="$(pwd)/dist/${XDC_NAME}"
-            (cd "$STAGE" && "$MAKE_XDC_PATH" "$DEST_XDC" --minify --verbose)
+
+            cp "$MAKE_XDC_PATH" "$STAGE/make-xdc.sh"
+            chmod +x "$STAGE/make-xdc.sh"
+
+            (cd "$STAGE" && ./make-xdc.sh "$DEST_XDC" --minify --verbose)
+
             rm -rf "$STAGE"
 
-            echo "=== Contents of ${XDC_NAME} ==="
+            echo "=== Contents of dist/${XDC_NAME} ==="
             unzip -l "dist/${XDC_NAME}"
             test -s "dist/${XDC_NAME}"
-
-            BUILT_COUNT=$((BUILT_COUNT + 1))
           done
 
-          if [ "$BUILT_COUNT" -eq 0 ]; then
-            echo "Error: No valid locale packages were built from '$LOCALE_DIR_PARENT'!" >&2
+          if [ "$LOCALE_FOUND" = false ]; then
+            echo "Error: '$LOCALES_DIR' found but contains no locale subdirectories!" >&2
             exit 1
           fi
 
-          echo "=== Built .xdc files (${BUILT_COUNT} total) ==="
+          echo "=== Built .xdc files in dist/ ==="
           ls -la dist/
-
       - name: Upload .xdc files as workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -133,7 +108,6 @@ jobs:
           path: dist/*.xdc
           retention-days: 14
           if-no-files-found: error
-
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
