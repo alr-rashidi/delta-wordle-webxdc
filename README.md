@@ -20,7 +20,9 @@
 
 The app is plain HTML/CSS/JS with no build step. Each locale lives in its own folder under `localization/` (e.g. `localization/en/`) and is self-contained except for the shared `scripts/` and `style.css` at the project root.
 
-To test real chat integration, package each locale as a `.xdc` file and share it in a Delta Chat chat.
+To test real chat integration, you have two options:
+1. Run /git-assets/make-xdc.sh and it will create /temp/app.xdc
+2. Package the main folder (without `locales`) and ‍`locales/XX/` files as a `.zip` file, rename it to `.xdc` and and send it into any supported messenger(like DeltaChat).
 
 ### Custom font per language
 
@@ -42,7 +44,7 @@ When `font.js` is absent, the locale falls back to the default font stack (`Taho
 
 ### Adding a language
 
-Copy an existing locale folder under `localization/` (e.g. `localization/en/`) to `localization/<lang>/`, then:
+Copy an existing locale folder under `locales/` (e.g. `locales/en/`) to `localization/<lang>/`, then:
 
 - translate the strings in `strings.js` (set `window.DIRECTION = "rtl"` for right-to-left languages),
 - provide a word list in `words.js` (5-letter words, one per line, assigned to `window.WORDS_RAW`) — this list is used to *validate guesses*,

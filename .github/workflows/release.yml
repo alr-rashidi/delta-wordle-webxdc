@@ -16,6 +16,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
       - name: Set version
         id: version
         run: |
@@ -27,17 +32,27 @@ jobs:
           echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Using version: ${VERSION}"
 
-      - name: Build one .xdc per locale
+      - name: Build one minified .xdc per locale
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
+          MAKE_XDC_PATH="$(pwd)/git-assets/make-xdc.sh"
+          chmod +x "$MAKE_XDC_PATH"
+
           mkdir -p dist
 
-          APP_FILES=(index.html style.css scripts)
-          # The locale's index.html is a dev preview (relative paths back to the
-          # project root), so the root index.html is used inside the package.
+          LOCALE_DIR_PARENT="locales"
+
+          if [ -z "$LOCALE_DIR_PARENT" ]; then
+            echo "Error: No 'locales' directory was found!" >&2
+            exit 1
+          fi
+
+          APP_FILES=(index.html style.css scripts assets webxdc.js unixel.woff2 icon.png)
           LOCALE_FILES=(manifest.toml strings.js words.js keyboard.js icon.png)
 
-          for locale_dir in localization/*/; do
+          BUILT_COUNT=0
+
+          for locale_dir in "$LOCALE_DIR_PARENT"/*/; do
             [ -d "$locale_dir" ] || continue
             locale="$(basename "$locale_dir")"
 
@@ -57,15 +72,21 @@ jobs:
             rm -rf "$STAGE"
             mkdir -p "$STAGE"
 
+            # Copy base application files into staging
             for f in "${APP_FILES[@]}"; do
-              cp -r "$f" "$STAGE/"
-            done
-            for f in "${LOCALE_FILES[@]}"; do
-              cp "$locale_dir/$f" "$STAGE/"
+              if [ -e "$f" ]; then
+                cp -r "$f" "$STAGE/"
+              fi
             done
 
-            # Optional per-locale files: the answers list (answers.js) and
-            # the custom font (font.js plus any font file it references).
+            # Copy locale-specific required files
+            for f in "${LOCALE_FILES[@]}"; do
+              if [ -e "$locale_dir/$f" ]; then
+                cp -r "$locale_dir/$f" "$STAGE/"
+              fi
+            done
+
+            # Optional per-locale files: answers list (answers.js) and custom fonts
             for f in font.js answers.js; do
               if [ -f "$locale_dir/$f" ]; then
                 cp "$locale_dir/$f" "$STAGE/"
@@ -78,22 +99,31 @@ jobs:
               fi
             fi
 
-            # Pin the version in the staged manifest (leave the source untouched)
+            # Pin the version in the staged manifest
             if grep -q '^version[[:space:]]*=' "$STAGE/manifest.toml"; then
               sed -i "s/^version[[:space:]]*=.*/version = \"${VERSION}\"/" "$STAGE/manifest.toml"
             else
               echo "version = \"${VERSION}\"" >> "$STAGE/manifest.toml"
             fi
 
-            (cd "$STAGE" && zip -qr "../dist/${XDC_NAME}" .)
+            # Build minified .xdc package
+            DEST_XDC="$(pwd)/dist/${XDC_NAME}"
+            (cd "$STAGE" && "$MAKE_XDC_PATH" "$DEST_XDC" --minify --verbose)
             rm -rf "$STAGE"
 
             echo "=== Contents of ${XDC_NAME} ==="
             unzip -l "dist/${XDC_NAME}"
             test -s "dist/${XDC_NAME}"
+
+            BUILT_COUNT=$((BUILT_COUNT + 1))
           done
 
-          echo "=== Built .xdc files ==="
+          if [ "$BUILT_COUNT" -eq 0 ]; then
+            echo "Error: No valid locale packages were built from '$LOCALE_DIR_PARENT'!" >&2
+            exit 1
+          fi
+
+          echo "=== Built .xdc files (${BUILT_COUNT} total) ==="
           ls -la dist/
 
       - name: Upload .xdc files as workflow artifact
